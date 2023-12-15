@@ -1,0 +1,5 @@
+{
+    "main_fsname": "server1",
+    "backup_fsname": "server2",
+    "backup_hostname": "server2_user@example.com"
+}
