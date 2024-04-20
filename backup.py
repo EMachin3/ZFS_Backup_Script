@@ -2,17 +2,13 @@ import json # Used to read values from the config file.
 import subprocess # Used to run ZFS commands
 from io import StringIO # Used to iterate over the lines of the ZFS output.
 import re # Used to format strings for commands.
+from pathlib import Path
 
 '''
 This script is used to make a complete incremental backup of the contents stored on a primary ZFS storage
 server to a secondary backup server. For brevity, these servers will be referred to as "main" and
 "backup" within the script and the configuration file. The script should be run on the primary system,
 which will connect to the secondary system through SSH.
-Before running the script, make sure to create a config.json file in the same directory as this
-file. This file should have three key-value pairs with these keys:
-    1. main_fsname      (the name of the main filesystem)
-    2. backup_fsname    (the name of the backup filesystem)
-    3. backup_hostname  (the hostname for the server hosting the backup filesystem)
 '''
 # First, load the main filesystem's name, the backup filesystem's name, and the hostname of the remote
 #     server on which the backup filesystem is hosted. These values are loaded from a config file named config.json
@@ -21,7 +17,8 @@ main_fsname = ""
 backup_fsname = ""
 backup_hostname = ""
 try:
-    with open('config.json', 'r') as config:
+    config_path = Path(__file__).with_name('config.json')
+    with config_path.open('r') as config:
         config_json = json.load(config)
         if 'main_fsname' not in config_json or 'backup_fsname' not in config_json or 'backup_hostname' not in config_json:
             print("One or more of the required keys not present in config.json")
@@ -39,7 +36,6 @@ except json.decoder.JSONDecodeError: # If the config file is not a valid json fi
 # Gets a list of information about the ZFS pools on the main system.
 # Casts the console output to a StringIO object to enable iterating over each line of the output.
 pools_list = StringIO(subprocess.run(["zfs", "list"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True).stdout)
-commands = open("commands_output.txt", "w")
 '''
 Sample format of pools_list:
 NAME                              USED  AVAIL     REFER  MOUNTPOINT
@@ -81,7 +77,7 @@ for line in pools_list: # Iterate over all the lines to back up each ZFS pool.
     else: # Perform an incremental backup to only send what has changed between the most recent snapshot on the backup and the most recent snapshot on main.
         # Change the host name of the newest snapshot on the backup server to the main server so that the corresponding snapshot on the host server can be sent.
         older_main_snapshot = re.sub(r'^{}'.format(backup_fsname), r'{}'.format(main_fsname), most_recent_backup_snapshot)
+        if older_main_snapshot == most_recent_main_snapshot:
+            continue #no changes to send
         subprocess.run("zfs send -i " + older_main_snapshot + " " + most_recent_main_snapshot + " | ssh " + backup_hostname + " zfs receive -u -F " +  backup_directory_name, shell=True, check=True)
-        commands.write("zfs send -i " + older_main_snapshot + " " + most_recent_main_snapshot + " | ssh " + backup_hostname + " zfs receive -u -F " +  backup_directory_name + "\n")
         print("\tPerformed an incremental backup.")
-commands.close()
